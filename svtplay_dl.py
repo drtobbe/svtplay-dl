@@ -445,7 +445,7 @@ def download_hls(options, url, baseurl=None):
         for i in files:
             if not i[0] in played:
                 item = i[0]
-                if options.output != "-" and options.live:
+                if options.output != "-" and options.live == False:
                     progressbar(len(files), n, estimated)
                 if item[0:5] != "http:":
                     item = "%s/%s" % (baseurl, item)
