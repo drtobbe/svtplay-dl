@@ -404,29 +404,6 @@ def download_hls(options, url, baseurl=None):
         streams[int(i[1]["BANDWIDTH"])] = i[0]
 
     test = select_quality(options, streams)
-    if baseurl and test[1:4] != "http":
-        test = "%s%s" % (baseurl, test)
-    m3u8 = get_http_data(test)
-    globaldata, files = parsem3u(m3u8)
-    encrypted = False
-    key = None
-    try:
-        keydata = globaldata["KEY"]
-        encrypted = True
-    except:
-        pass
-
-    if encrypted:
-        try:
-            from Crypto.Cipher import AES
-        except ImportError:
-            log.error("You need to install pycrypto to download encrypted HLS streams")
-            sys.exit(2)
-        match = re.search("URI=\"(http://.*)\"", keydata)
-        key = get_http_data(match.group(1))
-        rand = os.urandom(16)
-        decryptor = AES.new(key, AES.MODE_CBC, rand)
-    n = 1
     if options.output != "-":
         extension = re.search("(\.[a-z0-9]+)$", options.output)
         if not extension:
@@ -436,35 +413,66 @@ def download_hls(options, url, baseurl=None):
     else:
         file_d = sys.stdout
 
-    start = time.time()
-    estimated = ""
-    for i in files:
-        item = i[0]
-        if options.output != "-":
-            progressbar(len(files), n, estimated)
-        if item[0:5] != "http:":
-            item = "%s/%s" % (baseurl, item)
-        data = get_http_data(item)
+    if baseurl and test[1:4] != "http":
+        test = "%s%s" % (baseurl, test)
+    done = False
+    played = []
+    while not done:
+        m3u8 = get_http_data(test)
+        globaldata, files = parsem3u(m3u8)
+        encrypted = False
+        key = None
+        try:
+            keydata = globaldata["KEY"]
+            encrypted = True
+        except:
+            pass
+
         if encrypted:
-            lots = StringIO(data)
+            try:
+                from Crypto.Cipher import AES
+            except ImportError:
+                log.error("You need to install pycrypto to download encrypted HLS streams")
+                sys.exit(2)
+            match = re.search("URI=\"(http://.*)\"", keydata)
+            key = get_http_data(match.group(1))
+            rand = os.urandom(16)
+            decryptor = AES.new(key, AES.MODE_CBC, rand)
+        n = 1
 
-            plain = b""
-            crypt = lots.read(1024)
-            decrypted = decryptor.decrypt(crypt)
-            while decrypted:
-                plain += decrypted
-                crypt = lots.read(1024)
-                decrypted = decryptor.decrypt(crypt)
-            data = plain
+        start = time.time()
+        estimated = ""
+        for i in files:
+            if not i[0] in played:
+                item = i[0]
+                if options.output != "-" and options.live:
+                    progressbar(len(files), n, estimated)
+                if item[0:5] != "http:":
+                    item = "%s/%s" % (baseurl, item)
+                data = get_http_data(item)
+                if encrypted:
+                    lots = StringIO(data)
 
-        file_d.write(data)
-        now = time.time()
-        dt = now - start
-        et = dt / (n + 1) * len(files)
-        rt = et - dt
-        td = timedelta(seconds = int(rt))
-        estimated = "Estimated Remaining: " + str(td)
-        n += 1
+                    plain = b""
+                    crypt = lots.read(1024)
+                    decrypted = decryptor.decrypt(crypt)
+                    while decrypted:
+                        plain += decrypted
+                        crypt = lots.read(1024)
+                        decrypted = decryptor.decrypt(crypt)
+                    data = plain
+
+                file_d.write(data)
+                now = time.time()
+                dt = now - start
+                et = dt / (n + 1) * len(files)
+                rt = et - dt
+                td = timedelta(seconds = int(rt))
+                estimated = "Estimated Remaining: " + str(td)
+                n += 1
+                played.append(i[0])
+        if not options.live:
+            done = True
 
     if options.output != "-":
         file_d.close()
